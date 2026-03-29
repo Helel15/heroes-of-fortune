@@ -1,0 +1,119 @@
+════════════════════════════════════════════════════════════════
+  HEROES OF FORTUNE - MULTIPLAYER SETUP GUIDE
+════════════════════════════════════════════════════════════════
+
+🎮 MULTIPLAYER SERVER ENABLED!
+Your game now supports up to 5 players per battle room.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+QUICK START (Windows):
+━━━━━━━━━━━━━━━━━━━━
+
+1. Double-click: start.bat
+   OR run in PowerShell:
+   npm run server        (in terminal 1)
+   npm run dev          (in terminal 2)
+
+2. Open: http://localhost:5173
+
+3. Choose "Create Room" or "Join Room"
+
+4. Get up to 4 friends to join your room
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+QUICK START (Mac/Linux):
+━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: bash start.sh
+   OR manually:
+   npm run server        (in terminal 1)
+   npm run dev          (in terminal 2)
+
+2. Open: http://localhost:5173
+
+3. Create or join a room
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PORTS & ADDRESSES:
+━━━━━━━━━━━━━━━━━
+
+Server:        http://localhost:5000
+Client:        http://localhost:5173
+WebSocket:     ws://localhost:5000
+
+Max Players:   5 per room
+Network:       UDP/TCP via Socket.io
+
+
+FOR NETWORK PLAY (Other Devices on LAN):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Find your laptop's IP address:
+   Windows PowerShell:
+   ipconfig
+   Look for IPv4 Address (usually 192.168.x.x)
+
+2. Replace localhost in MultiplayerLobby.jsx (line 40,60):
+   OLD: const socket = io('http://localhost:5000/', {
+   NEW: const socket = io('http://YOUR_IP:5000/', {
+
+3. Friends connect to: http://YOUR_IP:5173
+
+Example: If your IP is 192.168.1.100:
+   - Server runs on: http://192.168.1.100:5000
+   - Game accessible at: http://192.168.1.100:5173
+
+
+FEATURES:
+━━━━━━━━
+
+✅ Create private game rooms
+✅ Join existing rooms (max 5 players)
+✅ Real-time game state synchronization
+✅ Live chat between players
+✅ Support for local network play
+✅ Automatic room cleanup on disconnect
+
+
+TROUBLESHOOTING:
+━━━━━━━━━━━━━━
+
+Q: "Could not connect to server"
+A: Make sure `npm run server` is running in another terminal
+
+Q: Friends can't see my room
+A: Check if you're using the same network. Both devices need to be
+   connected to the same WiFi/LAN
+
+Q: Connection drops after a few minutes
+A: Ensure firewalls allow connections on ports 5000 and 5173
+
+Q: Want to play solo again?
+A: Click "Single Player" in the lobby - no server needed
+
+
+FILE STRUCTURE:
+━━━━━━━━━━━━━━
+
+server.js                  - WebSocket server (port 5000)
+src/App.jsx               - Game mode selector
+src/MultiplayerLobby.jsx  - Room creation/joining interface
+src/HeroesOfFortune.jsx   - Game component (accepts multiplayer config)
+
+
+MORE HELP:
+━━━━━━━
+
+Check package.json for available commands:
+- npm run dev       - Start Vite dev server
+- npm run server    - Start Socket.io server
+- npm run build     - Build for production
+- npm run preview   - Preview production build
+
+
+════════════════════════════════════════════════════════════════
+                    Happy battling! ⚔️
+════════════════════════════════════════════════════════════════

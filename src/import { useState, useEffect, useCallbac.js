@@ -1,0 +1,1023 @@
+import { useState, useEffect, useCallback } from "react";
+
+/* ═══════════════════════════════════════════════════════
+   GAME DATA
+═══════════════════════════════════════════════════════ */
+const SUITS = ['♠','♥','♦','♣'];
+const RANKS = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+const RANK_VALUES = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
+const SUIT_COLOR = s => (s==='♥'||s==='♦') ? '#e05555' : '#6aabff';
+
+const HAND_DATA = {
+  'Royal Flush':    { chips:100, mult:8,   color:'#FFD700', emoji:'👑' },
+  'Straight Flush': { chips:80,  mult:6,   color:'#FF6B35', emoji:'🌊' },
+  'Four of a Kind': { chips:70,  mult:5,   color:'#9B59B6', emoji:'🐉' },
+  'Full House':     { chips:50,  mult:4,   color:'#E74C3C', emoji:'🏰' },
+  'Flush':          { chips:40,  mult:3.5, color:'#3498DB', emoji:'✨' },
+  'Straight':       { chips:35,  mult:3,   color:'#2ECC71', emoji:'⚡' },
+  'Three of a Kind':{ chips:25,  mult:2.5, color:'#1ABC9C', emoji:'⚔️' },
+  'Two Pair':       { chips:15,  mult:2,   color:'#F39C12', emoji:'🛡️' },
+  'Pair':           { chips:10,  mult:1.5, color:'#E67E22', emoji:'🏹' },
+  'High Card':      { chips:5,   mult:1.2, color:'#95A5A6', emoji:'🗡️' },
+};
+
+const CREATURES = [
+  { id:'pikeman',   name:'Pikeman',    emoji:'⚔️', desc:'+20 chips always',              cost:50,  rarity:'common',    color:'#7f8c8d',
+    apply:(d,h)=>({...d,chips:d.chips+20}) },
+  { id:'archer',    name:'Archer',     emoji:'🏹', desc:'Pairs → ×2 mult',               cost:60,  rarity:'common',    color:'#7f8c8d',
+    apply:(d,h)=>h.name.includes('Pair')?{...d,mult:d.mult*2}:d },
+  { id:'griffin',   name:'Griffin',    emoji:'🦅', desc:'Flush family → ×2.5 mult',      cost:110, rarity:'rare',      color:'#3498db',
+    apply:(d,h)=>h.name.includes('Flush')?{...d,mult:d.mult*2.5}:d },
+  { id:'knight',    name:'Knight',     emoji:'🛡️', desc:'Full House +100 chips',          cost:90,  rarity:'uncommon',  color:'#2ecc71',
+    apply:(d,h)=>h.name==='Full House'?{...d,chips:d.chips+100}:d },
+  { id:'dragon',    name:'Dragon',     emoji:'🐉', desc:'4-card+ hands → ×2 mult',        cost:160, rarity:'legendary', color:'#e74c3c',
+    apply:(d,h)=>['Four of a Kind','Straight Flush','Royal Flush'].includes(h.name)?{...d,mult:d.mult*2}:d },
+  { id:'mage',      name:'Tower Mage', emoji:'🧙', desc:'Three of a Kind +80 chips',      cost:80,  rarity:'uncommon',  color:'#2ecc71',
+    apply:(d,h)=>h.name==='Three of a Kind'?{...d,chips:d.chips+80}:d },
+  { id:'cyclops',   name:'Cyclops',    emoji:'👁️', desc:'High Card → ×4 mult',            cost:70,  rarity:'common',    color:'#7f8c8d',
+    apply:(d,h)=>h.name==='High Card'?{...d,mult:d.mult*4}:d },
+  { id:'phoenix',   name:'Phoenix',    emoji:'🔥', desc:'Straights +60 chips',             cost:100, rarity:'rare',      color:'#3498db',
+    apply:(d,h)=>h.name.includes('Straight')?{...d,chips:d.chips+60}:d },
+  { id:'vampire',   name:'Vampire',    emoji:'🧛', desc:'Every hand heals 8 HP',           cost:95,  rarity:'rare',      color:'#3498db',
+    apply:(d,h)=>({...d,heal:8}) },
+  { id:'angel',     name:'Angel',      emoji:'👼', desc:'+1 hand each battle',             cost:85,  rarity:'uncommon',  color:'#2ecc71',
+    apply:(d,h)=>d },
+  { id:'lich',      name:'Lich',       emoji:'💀', desc:'Two Pair → ×3 mult',              cost:75,  rarity:'common',    color:'#7f8c8d',
+    apply:(d,h)=>h.name==='Two Pair'?{...d,mult:d.mult*3}:d },
+  { id:'titan',     name:'Titan',      emoji:'⛰️', desc:'All hands +40 chips',             cost:130, rarity:'rare',      color:'#3498db',
+    apply:(d,h)=>({...d,chips:d.chips+40}) },
+];
+
+const ARTIFACTS = [
+  { id:'blazesword', name:'Blazing Sword', emoji:'🗡️',  desc:'+35 global chips',         cost:80,  effect:{chips:35} },
+  { id:'holycrown',  name:'Holy Crown',    emoji:'👑',  desc:'+0.5 global mult',          cost:100, effect:{mult:0.5} },
+  { id:'spellbook',  name:'Spell Tome',    emoji:'📖',  desc:'+2 hands per battle',       cost:90,  effect:{hands:2} },
+  { id:'boots',      name:'Speed Boots',   emoji:'👢',  desc:'+1 discard per battle',     cost:70,  effect:{discards:1} },
+  { id:'shield',     name:'Dragon Shield', emoji:'🛡️',  desc:'-30% enemy ATK',           cost:85,  effect:{shieldPct:0.3} },
+  { id:'potion',     name:'Mega Potion',   emoji:'🧪',  desc:'Restore 40 HP',             cost:60,  effect:{heal:40} },
+];
+
+const HERO_CLASSES = [
+  { id:'knight',      name:'Knight',      emoji:'⚔️', desc:'Master of melee. Pairs & Full Houses gain ×1.5 mult.',      hp:130, color:'#e74c3c',
+    bonus:(h,d)=>(['Pair','Two Pair','Full House'].some(n=>h.name.includes(n)))?{...d,mult:d.mult*1.5}:d },
+  { id:'wizard',      name:'Wizard',      emoji:'🔮', desc:'Arcane power. Straights & Flushes gain ×2 mult.',           hp:90,  color:'#9b59b6',
+    bonus:(h,d)=>(h.name.includes('Straight')||h.name.includes('Flush'))?{...d,mult:d.mult*2}:d },
+  { id:'ranger',      name:'Ranger',      emoji:'🏹', desc:'Swift hunter. Starts with Archer. +1 hand & discard.',      hp:105, color:'#27ae60', startCreature:'archer',
+    bonus:(h,d)=>d },
+  { id:'necromancer', name:'Necromancer', emoji:'💀', desc:'Dark lord. Three & Four of a Kind deal ×2.5 damage.',       hp:80,  color:'#2c3e50',
+    bonus:(h,d)=>(['Three of a Kind','Four of a Kind'].includes(h.name))?{...d,mult:d.mult*2.5}:d },
+];
+
+const ENEMY_WAVES = [
+  [{ id:'goblin',   name:'Goblin Horde',    emoji:'👺', maxHp:220, atk:18, reward:65,  desc:'Weak & cowardly',        tier:1 }],
+  [{ id:'orc',      name:'Orc Warriors',    emoji:'👹', maxHp:380, atk:28, reward:85,  desc:'Brutal attackers',       tier:2 }],
+  [{ id:'vampire',  name:'Vampire Lord',    emoji:'🧛', maxHp:520, atk:38, reward:115, desc:'Heals 25 HP each turn', tier:3, special:'heal', specialVal:25 }],
+  [{ id:'dragon2',  name:'Emerald Dragon',  emoji:'🐲', maxHp:720, atk:55, reward:155, desc:'Burns on hit',           tier:4, special:'burn', specialVal:10 }],
+  [{ id:'lich',     name:'The Lich King',   emoji:'☠️', maxHp:1100,atk:75, reward:999, desc:'BOSS – Ancient Undead',  tier:5, special:'curse', isBoss:true }],
+];
+
+/* ═══════════════════════════════════════════════════════
+   DECK & HAND UTILITIES
+═══════════════════════════════════════════════════════ */
+function createDeck() {
+  return shuffle(SUITS.flatMap(s => RANKS.map(r => ({suit:s,rank:r,id:`${r}${s}`}))));
+}
+function shuffle(a) {
+  const b=[...a];
+  for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];}
+  return b;
+}
+
+function evaluateHand(cards) {
+  if(!cards.length) return {name:'None',chips:0,mult:1};
+  const ranks = cards.map(c=>RANK_VALUES[c.rank]).sort((a,b)=>b-a);
+  const suits = cards.map(c=>c.suit);
+  const rc={};
+  ranks.forEach(r=>rc[r]=(rc[r]||0)+1);
+  const counts=Object.values(rc).sort((a,b)=>b-a);
+  const isFlush = cards.length>=5 && suits.every(s=>s===suits[0]);
+  const uniqueRanks=[...new Set(ranks)].sort((a,b)=>a-b);
+  const isStraight = cards.length>=5 && uniqueRanks.length===5 &&
+    (uniqueRanks[4]-uniqueRanks[0]===4 ||
+     (uniqueRanks.join(',') === '2,3,4,5,14')); // A-2-3-4-5
+  const isRoyal = isFlush && [14,13,12,11,10].every(r=>ranks.includes(r));
+  const chipBase = ranks.reduce((s,r)=>s+Math.min(r,10),0);
+
+  if(isRoyal)                          return {name:'Royal Flush',    chips:chipBase+HAND_DATA['Royal Flush'].chips,    mult:HAND_DATA['Royal Flush'].mult};
+  if(isStraight&&isFlush)              return {name:'Straight Flush', chips:chipBase+HAND_DATA['Straight Flush'].chips, mult:HAND_DATA['Straight Flush'].mult};
+  if(counts[0]===4)                    return {name:'Four of a Kind', chips:chipBase+HAND_DATA['Four of a Kind'].chips, mult:HAND_DATA['Four of a Kind'].mult};
+  if(counts[0]===3&&counts[1]===2)     return {name:'Full House',     chips:chipBase+HAND_DATA['Full House'].chips,     mult:HAND_DATA['Full House'].mult};
+  if(isFlush)                          return {name:'Flush',          chips:chipBase+HAND_DATA['Flush'].chips,          mult:HAND_DATA['Flush'].mult};
+  if(isStraight)                       return {name:'Straight',       chips:chipBase+HAND_DATA['Straight'].chips,       mult:HAND_DATA['Straight'].mult};
+  if(counts[0]===3)                    return {name:'Three of a Kind',chips:chipBase+HAND_DATA['Three of a Kind'].chips,mult:HAND_DATA['Three of a Kind'].mult};
+  if(counts[0]===2&&counts[1]===2)     return {name:'Two Pair',       chips:chipBase+HAND_DATA['Two Pair'].chips,       mult:HAND_DATA['Two Pair'].mult};
+  if(counts[0]===2)                    return {name:'Pair',           chips:chipBase+HAND_DATA['Pair'].chips,           mult:HAND_DATA['Pair'].mult};
+  return                                       {name:'High Card',     chips:chipBase+HAND_DATA['High Card'].chips,      mult:HAND_DATA['High Card'].mult};
+}
+
+function calcDamage(handResult, creatures, artifacts, heroClass) {
+  let d = { chips: handResult.chips, mult: handResult.mult, heal: 0 };
+  // Hero class bonus
+  d = heroClass.bonus(handResult, d);
+  // Creature bonuses
+  for(const c of creatures) d = c.apply(d, handResult);
+  // Artifact chip/mult bonuses
+  for(const a of artifacts) {
+    if(a.effect.chips) d.chips += a.effect.chips;
+    if(a.effect.mult)  d.mult  += a.effect.mult;
+  }
+  return Math.floor(d.chips * d.mult);
+}
+
+/* ═══════════════════════════════════════════════════════
+   SHOP UTILITIES
+═══════════════════════════════════════════════════════ */
+function generateShop() {
+  const shuffledCreatures = shuffle([...CREATURES]);
+  const shuffledArtifacts = shuffle([...ARTIFACTS]);
+  return {
+    creatures: shuffledCreatures.slice(0,3),
+    artifacts: shuffledArtifacts.slice(0,2),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════ */
+export default function HeroesOfFortune() {
+  const [phase, setPhase] = useState('title'); // title | heroSelect | battle | shop | victory | defeat
+  const [hero, setHero] = useState(null);
+  const [heroClass, setHeroClass] = useState(null);
+  const [waveIndex, setWaveIndex] = useState(0);
+  const [enemy, setEnemy] = useState(null);
+  const [deck, setDeck] = useState([]);
+  const [hand, setHand] = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [handsLeft, setHandsLeft] = useState(4);
+  const [discardsLeft, setDiscardsLeft] = useState(3);
+  const [creatures, setCreatures] = useState([]);
+  const [artifacts, setArtifacts] = useState([]);
+  const [shop, setShop] = useState(null);
+  const [log, setLog] = useState([]);
+  const [lastHand, setLastHand] = useState(null);
+  const [lastDmg, setLastDmg] = useState(null);
+  const [animating, setAnimating] = useState(false);
+  const [enemyShake, setEnemyShake] = useState(false);
+  const [heroShake, setHeroShake] = useState(false);
+  const [burnStacks, setBurnStacks] = useState(0);
+
+  const addLog = (msg, type='normal') => setLog(l => [{msg,type,id:Date.now()+Math.random()},...l].slice(0,8));
+
+  const startBattle = useCallback((hc, existingCreatures, existingArtifacts, existingHero, wIdx) => {
+    const currentWave = ENEMY_WAVES[wIdx][0];
+    const newDeck = createDeck();
+    const newHand = newDeck.slice(0,8);
+    const restDeck = newDeck.slice(8);
+    
+    let baseHands = 4;
+    let baseDiscards = 3;
+    if(hc.id==='ranger'){baseHands++;baseDiscards++;}
+    existingArtifacts.forEach(a=>{
+      if(a.effect.hands)    baseHands    += a.effect.hands;
+      if(a.effect.discards) baseDiscards += a.effect.discards;
+    });
+    const hasAngel = existingCreatures.some(c=>c.id==='angel');
+    if(hasAngel) baseHands++;
+
+    setEnemy({...currentWave, hp:currentWave.maxHp});
+    setDeck(restDeck);
+    setHand(newHand);
+    setSelected([]);
+    setHandsLeft(baseHands);
+    setDiscardsLeft(baseDiscards);
+    setLastHand(null);
+    setLastDmg(null);
+    setBurnStacks(0);
+    setLog([{msg:`⚔️ Battle begins! Face the ${currentWave.name}!`, type:'system', id:Date.now()}]);
+    setPhase('battle');
+  }, []);
+
+  const selectCard = (idx) => {
+    if(animating) return;
+    setSelected(prev => {
+      if(prev.includes(idx)) return prev.filter(i=>i!==idx);
+      if(prev.length>=5) return prev;
+      return [...prev,idx];
+    });
+  };
+
+  const playHand = () => {
+    if(selected.length===0 || handsLeft===0 || animating) return;
+    const played = selected.map(i=>hand[i]);
+    const handResult = evaluateHand(played);
+    
+    let d = { chips: handResult.chips, mult: handResult.mult, heal: 0 };
+    d = heroClass.bonus(handResult, d);
+    for(const c of creatures) d = c.apply(d, handResult);
+    for(const a of artifacts) {
+      if(a.effect.chips) d.chips += a.effect.chips;
+      if(a.effect.mult)  d.mult  += a.effect.mult;
+    }
+    const dmg = Math.floor(d.chips * d.mult);
+    const healAmt = d.heal || 0;
+
+    setLastHand(handResult);
+    setLastDmg(dmg);
+    setAnimating(true);
+    setEnemyShake(true);
+    setTimeout(()=>setEnemyShake(false), 600);
+
+    const hInfo = HAND_DATA[handResult.name];
+    addLog(`${hInfo.emoji} ${handResult.name}! ${d.chips} × ${d.mult.toFixed(1)} = ${dmg} dmg`, 'attack');
+
+    setEnemy(prev => {
+      const newHp = Math.max(0, prev.hp - dmg);
+      if(prev.special==='heal' && newHp > 0) {
+        setTimeout(()=>addLog(`🧛 Vampire heals 25 HP!`, 'enemy'), 400);
+        return {...prev, hp: Math.min(prev.maxHp, newHp + 25)};
+      }
+      return {...prev, hp: newHp};
+    });
+
+    if(healAmt>0) {
+      setHero(prev=>({...prev, hp:Math.min(prev.maxHp, prev.hp+healAmt)}));
+      addLog(`💚 Vampire healed you for ${healAmt} HP!`, 'heal');
+    }
+
+    // Draw new cards
+    const remaining = hand.filter((_,i)=>!selected.includes(i));
+    const needed = 8 - remaining.length;
+    let newDeck = deck;
+    let drawn = [];
+    if(newDeck.length < needed) {
+      newDeck = createDeck();
+    }
+    drawn = newDeck.slice(0, needed);
+    newDeck = newDeck.slice(needed);
+
+    setHand([...remaining, ...drawn]);
+    setDeck(newDeck);
+    setSelected([]);
+    setHandsLeft(prev => prev - 1);
+
+    setTimeout(() => {
+      setAnimating(false);
+      // Check enemy death
+      setEnemy(current => {
+        if(current && current.hp <= 0) {
+          const reward = current.reward;
+          addLog(`💀 ${current.name} defeated! +${reward} gold!`, 'victory');
+          setHero(h => ({...h, gold: h.gold + reward}));
+          setTimeout(() => {
+            if(waveIndex >= ENEMY_WAVES.length - 1) {
+              setPhase('victory');
+            } else {
+              setShop(generateShop());
+              setPhase('shop');
+            }
+          }, 1000);
+        }
+        return current;
+      });
+    }, 700);
+  };
+
+  const discardCards = () => {
+    if(selected.length===0 || discardsLeft===0 || animating) return;
+    const remaining = hand.filter((_,i)=>!selected.includes(i));
+    const needed = 8 - remaining.length;
+    let newDeck = deck;
+    if(newDeck.length < needed) newDeck = createDeck();
+    const drawn = newDeck.slice(0, needed);
+    setHand([...remaining, ...drawn]);
+    setDeck(newDeck.slice(needed));
+    setSelected([]);
+    setDiscardsLeft(prev => prev-1);
+    addLog(`🔄 Discarded ${selected.length} card(s)`, 'normal');
+  };
+
+  // Enemy attacks after each play
+  useEffect(() => {
+    if(!animating || !enemy || enemy.hp <= 0) return;
+    const timer = setTimeout(() => {
+      setEnemy(e => {
+        if(!e || e.hp <= 0) return e;
+        let atkDmg = e.atk;
+        const shieldArt = artifacts.find(a=>a.effect.shieldPct);
+        if(shieldArt) atkDmg = Math.floor(atkDmg * (1 - shieldArt.effect.shieldPct));
+        if(burnStacks > 0) {
+          const burnDmg = burnStacks * 5;
+          addLog(`🔥 Burn deals ${burnDmg} to enemy!`, 'burn');
+          const afterBurn = Math.max(0, e.hp - burnDmg);
+          setBurnStacks(b=>Math.max(0,b-1));
+          return {...e, hp: afterBurn};
+        }
+        return e;
+      });
+      
+      if(enemy && enemy.hp > 0) {
+        let atkDmg = enemy.atk;
+        const shieldArt = artifacts.find(a=>a.effect.shieldPct);
+        if(shieldArt) atkDmg = Math.floor(atkDmg * (1 - shieldArt.effect.shieldPct));
+        
+        setHeroShake(true);
+        setTimeout(()=>setHeroShake(false), 600);
+        setHero(prev => {
+          const newHp = Math.max(0, prev.hp - atkDmg);
+          addLog(`👿 ${enemy.name} attacks for ${atkDmg} damage!`, 'enemy');
+          if(newHp <= 0) {
+            setTimeout(()=>setPhase('defeat'), 800);
+          }
+          return {...prev, hp: newHp};
+        });
+
+        if(enemy.special==='burn') setBurnStacks(b=>b+2);
+      }
+    }, 500);
+    return ()=>clearTimeout(timer);
+  }, [animating]); // eslint-disable-line
+
+  // End of hands - lose battle
+  useEffect(() => {
+    if(phase!=='battle') return;
+    if(handsLeft===0 && enemy && enemy.hp > 0) {
+      addLog(`😤 Ran out of hands! Retreating...`, 'system');
+      const penalty = Math.floor(enemy.atk * 3);
+      setHero(prev => {
+        const newHp = Math.max(0, prev.hp - penalty);
+        if(newHp <= 0) setTimeout(()=>setPhase('defeat'),800);
+        return {...prev, hp: newHp};
+      });
+      setTimeout(() => {
+        setShop(generateShop());
+        setPhase('shop');
+      }, 1500);
+    }
+  }, [handsLeft, enemy, phase]);
+
+  const selectHeroClass = (hc) => {
+    const startCreatures = hc.startCreature ? [CREATURES.find(c=>c.id===hc.startCreature)] : [];
+    const newHero = { hp: hc.hp, maxHp: hc.hp, gold: 80 };
+    setHeroClass(hc);
+    setHero(newHero);
+    setCreatures(startCreatures);
+    setArtifacts([]);
+    setWaveIndex(0);
+    startBattle(hc, startCreatures, [], newHero, 0);
+  };
+
+  const buyFromShop = (item, type) => {
+    if(hero.gold < item.cost) return;
+    setHero(prev => {
+      let newHp = prev.hp;
+      if(type==='artifact' && item.effect.heal) newHp = Math.min(prev.maxHp, prev.hp + item.effect.heal);
+      return {...prev, gold: prev.gold - item.cost, hp: newHp};
+    });
+    if(type==='creature') setCreatures(prev=>[...prev, item]);
+    else if(type==='artifact') setArtifacts(prev=>[...prev, item]);
+    setShop(prev=>({
+      creatures: type==='creature' ? prev.creatures.filter(c=>c.id!==item.id) : prev.creatures,
+      artifacts: type==='artifact' ? prev.artifacts.filter(a=>a.id!==item.id) : prev.artifacts,
+    }));
+    addLog(`🛒 Purchased ${item.name}!`, 'shop');
+  };
+
+  const continueAfterShop = () => {
+    const nextWaveIdx = waveIndex + 1;
+    setWaveIndex(nextWaveIdx);
+    startBattle(heroClass, creatures, artifacts, hero, nextWaveIdx);
+  };
+
+  /* ═══════════════ STYLES ═══════════════ */
+  const S = {
+    root: {
+      minHeight:'100vh', background:'#080c14',
+      fontFamily:"'Cinzel', 'Palatino Linotype', Georgia, serif",
+      color:'#d4af7a', display:'flex', flexDirection:'column', alignItems:'center',
+      justifyContent:'center', padding:'8px',
+      backgroundImage:'radial-gradient(ellipse at 50% 0%, #1a0a2e 0%, #080c14 70%)',
+      overflow:'hidden',
+    },
+  };
+
+  /* ═══════════════════════════════════════
+     TITLE SCREEN
+  ═══════════════════════════════════════ */
+  if(phase==='title') return (
+    <div style={S.root}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;600;700&display=swap');
+        @keyframes glow { 0%,100%{text-shadow:0 0 20px #ffd700,0 0 40px #ff8c00} 50%{text-shadow:0 0 40px #ffd700,0 0 80px #ff8c00,0 0 100px #ffd700} }
+        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+        @keyframes shimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        .title-glow { animation: glow 3s ease-in-out infinite; }
+        .float { animation: float 4s ease-in-out infinite; }
+        .card-btn:hover { transform:translateY(-4px) scale(1.02); box-shadow:0 8px 30px rgba(212,175,122,0.4)!important; }
+        .card-btn { transition: all 0.2s ease; }
+        .shimmer-text { background: linear-gradient(90deg, #ffd700, #ff8c00, #ffd700, #ff8c00); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 3s linear infinite; }
+      `}</style>
+      <div style={{textAlign:'center', animation:'fadeIn 1s ease'}}>
+        <div style={{fontSize:'72px', marginBottom:'8px'}} className="float">⚔️🃏🐉</div>
+        <h1 style={{fontFamily:"'Cinzel Decorative', serif", fontSize:'clamp(28px,6vw,52px)', margin:'0 0 4px',
+          letterSpacing:'4px', color:'#ffd700'}} className="title-glow">
+          Heroes of Fortune
+        </h1>
+        <p style={{fontFamily:"'Cinzel', serif", fontSize:'14px', letterSpacing:'6px', color:'#9b7a3a',
+          marginBottom:'32px', textTransform:'uppercase'}}>
+          Might · Cards · Magic
+        </p>
+        <div style={{fontSize:'13px', color:'#8a7050', marginBottom:'40px', maxWidth:'420px', lineHeight:'1.8'}}>
+          Play poker hands to unleash mighty attacks.<br/>
+          Collect legendary creatures as card modifiers.<br/>
+          Conquer 5 waves to claim eternal glory.
+        </div>
+        <button className="card-btn" onClick={()=>setPhase('heroSelect')} style={{
+          padding:'16px 48px', fontSize:'18px', fontFamily:"'Cinzel', serif",
+          background:'linear-gradient(135deg, #8b1a1a, #c0392b)',
+          border:'2px solid #ffd700', borderRadius:'4px', color:'#ffd700',
+          cursor:'pointer', letterSpacing:'3px', textTransform:'uppercase',
+          boxShadow:'0 4px 20px rgba(192,57,43,0.4)',
+        }}>
+          ⚔️ Begin Quest
+        </button>
+        <div style={{marginTop:'24px', display:'flex', gap:'16px', justifyContent:'center', flexWrap:'wrap'}}>
+          {Object.entries(HAND_DATA).slice(8).reverse().concat(Object.entries(HAND_DATA).slice(0,8).reverse()).slice(0,5).map(([name,data])=>(
+            <span key={name} style={{fontSize:'11px', padding:'4px 10px', borderRadius:'3px',
+              background:'rgba(255,255,255,0.05)', border:'1px solid rgba(212,175,122,0.2)',
+              color:data.color, fontFamily:"'Cinzel', serif", letterSpacing:'1px'}}>
+              {data.emoji} {name}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ═══════════════════════════════════════
+     HERO SELECT
+  ═══════════════════════════════════════ */
+  if(phase==='heroSelect') return (
+    <div style={S.root}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@400;600&display=swap');
+        @keyframes fadeIn { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        .hero-card:hover { transform:translateY(-6px) scale(1.03); }
+        .hero-card { transition:all 0.25s ease; cursor:pointer; }
+      `}</style>
+      <div style={{textAlign:'center', animation:'fadeIn 0.6s ease', width:'100%', maxWidth:'700px'}}>
+        <h2 style={{fontFamily:"'Cinzel Decorative', serif", fontSize:'24px', color:'#ffd700',
+          letterSpacing:'4px', marginBottom:'8px'}}>Choose Your Hero</h2>
+        <p style={{color:'#8a7050', fontSize:'12px', letterSpacing:'3px', marginBottom:'28px'}}>
+          YOUR CLASS SHAPES YOUR DESTINY
+        </p>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'16px'}}>
+          {HERO_CLASSES.map(hc=>(
+            <div key={hc.id} className="hero-card" onClick={()=>selectHeroClass(hc)}
+              style={{
+                background:`linear-gradient(135deg, rgba(0,0,0,0.6), ${hc.color}22)`,
+                border:`2px solid ${hc.color}66`,
+                borderRadius:'8px', padding:'20px', textAlign:'left',
+                boxShadow:`0 4px 20px ${hc.color}33`,
+              }}>
+              <div style={{fontSize:'36px', marginBottom:'8px'}}>{hc.emoji}</div>
+              <div style={{fontFamily:"'Cinzel', serif", fontSize:'18px', color:hc.color,
+                fontWeight:'700', marginBottom:'6px'}}>{hc.name}</div>
+              <div style={{fontSize:'12px', color:'#b09070', lineHeight:'1.6', marginBottom:'12px'}}>{hc.desc}</div>
+              <div style={{display:'flex', gap:'12px'}}>
+                <span style={{fontSize:'12px', color:'#e74c3c'}}>❤️ {hc.hp} HP</span>
+                {hc.startCreature && <span style={{fontSize:'12px', color:'#27ae60'}}>
+                  🎁 +{CREATURES.find(c=>c.id===hc.startCreature)?.name}
+                </span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ═══════════════════════════════════════
+     VICTORY SCREEN
+  ═══════════════════════════════════════ */
+  if(phase==='victory') return (
+    <div style={S.root}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@600&display=swap');
+        @keyframes victoryPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.05)} }
+        @keyframes goldRain { 0%{top:-10%;opacity:1} 100%{top:110%;opacity:0} }
+      `}</style>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:'80px', animation:'victoryPulse 2s infinite', marginBottom:'16px'}}>🏆</div>
+        <h1 style={{fontFamily:"'Cinzel Decorative', serif", fontSize:'36px', color:'#ffd700',
+          textShadow:'0 0 40px #ffd700', letterSpacing:'4px', marginBottom:'8px'}}>
+          VICTORY!
+        </h1>
+        <p style={{color:'#d4af7a', marginBottom:'8px', fontSize:'16px'}}>
+          The Lich King has fallen. The realm is saved.
+        </p>
+        <p style={{color:'#9b7a3a', fontSize:'13px', marginBottom:'32px'}}>
+          {heroClass?.emoji} {heroClass?.name} — {hero?.hp}/{hero?.maxHp} HP remaining
+        </p>
+        <button onClick={()=>{setPhase('title');setHero(null);setHeroClass(null);setWaveIndex(0);}}
+          style={{padding:'14px 36px', fontFamily:"'Cinzel', serif", fontSize:'16px',
+            background:'linear-gradient(135deg,#1a4a1a,#27ae60)', border:'2px solid #ffd700',
+            color:'#ffd700', borderRadius:'4px', cursor:'pointer', letterSpacing:'2px'}}>
+          🏰 New Quest
+        </button>
+      </div>
+    </div>
+  );
+
+  /* ═══════════════════════════════════════
+     DEFEAT SCREEN
+  ═══════════════════════════════════════ */
+  if(phase==='defeat') return (
+    <div style={S.root}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@600&display=swap');`}</style>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:'80px', marginBottom:'16px'}}>💀</div>
+        <h1 style={{fontFamily:"'Cinzel Decorative', serif", fontSize:'36px', color:'#c0392b',
+          textShadow:'0 0 30px #c0392b', letterSpacing:'4px', marginBottom:'8px'}}>FALLEN</h1>
+        <p style={{color:'#8a7050', marginBottom:'8px', fontSize:'15px'}}>
+          Your hero has been vanquished. The darkness prevails... for now.
+        </p>
+        <p style={{color:'#666', fontSize:'13px', marginBottom:'32px'}}>
+          Wave {waveIndex+1} of 5 — {enemy?.name} was not defeated
+        </p>
+        <button onClick={()=>{setPhase('title');setHero(null);setHeroClass(null);setWaveIndex(0);}}
+          style={{padding:'14px 36px', fontFamily:"'Cinzel', serif", fontSize:'16px',
+            background:'linear-gradient(135deg,#2c0a0a,#8b1a1a)', border:'2px solid #c0392b',
+            color:'#e8a0a0', borderRadius:'4px', cursor:'pointer', letterSpacing:'2px'}}>
+          ⚔️ Try Again
+        </button>
+      </div>
+    </div>
+  );
+
+  /* ═══════════════════════════════════════
+     SHOP SCREEN
+  ═══════════════════════════════════════ */
+  if(phase==='shop') return (
+    <div style={{...S.root, justifyContent:'flex-start', paddingTop:'20px'}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@400;600&display=swap');
+        @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+        .shop-item:hover { transform:translateY(-3px); box-shadow:0 6px 20px rgba(212,175,122,0.3)!important; }
+        .shop-item { transition:all 0.2s; }
+        .buy-btn:hover { background:linear-gradient(135deg,#2d5a1b,#27ae60)!important; }
+        .buy-btn { transition:all 0.2s; }
+      `}</style>
+      <div style={{width:'100%', maxWidth:'680px', animation:'fadeIn 0.5s ease'}}>
+        {/* Header */}
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px'}}>
+          <div>
+            <h2 style={{fontFamily:"'Cinzel Decorative', serif", fontSize:'20px', color:'#ffd700', margin:'0 0 4px', letterSpacing:'3px'}}>
+              🏪 Tavern & Market
+            </h2>
+            <p style={{color:'#8a7050', fontSize:'11px', letterSpacing:'2px', margin:0}}>
+              WAVE {waveIndex+2} APPROACHES
+            </p>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:'20px', color:'#ffd700', fontWeight:'bold'}}>💰 {hero?.gold}</div>
+            <div style={{fontSize:'12px', color:'#666'}}>gold</div>
+          </div>
+        </div>
+
+        {/* Hero Status */}
+        <div style={{background:'rgba(212,175,122,0.08)', border:'1px solid rgba(212,175,122,0.2)',
+          borderRadius:'6px', padding:'12px', marginBottom:'16px', display:'flex', gap:'20px', alignItems:'center'}}>
+          <span style={{fontSize:'28px'}}>{heroClass?.emoji}</span>
+          <div style={{flex:1}}>
+            <div style={{color:'#ffd700', fontFamily:"'Cinzel', serif", fontSize:'14px', marginBottom:'6px'}}>
+              {heroClass?.name}
+            </div>
+            <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+              <div style={{flex:1, height:'8px', background:'#1a1a2e', borderRadius:'4px', overflow:'hidden'}}>
+                <div style={{width:`${(hero?.hp/hero?.maxHp)*100}%`, height:'100%',
+                  background:`linear-gradient(90deg, #c0392b, #e74c3c)`, transition:'width 0.5s'}} />
+              </div>
+              <span style={{fontSize:'12px', color:'#e74c3c', minWidth:'60px'}}>❤️ {hero?.hp}/{hero?.maxHp}</span>
+            </div>
+          </div>
+          <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
+            {creatures.slice(0,4).map(c=>(
+              <span key={c.id} title={c.desc} style={{fontSize:'20px'}}>{c.emoji}</span>
+            ))}
+          </div>
+        </div>
+
+        {/* Next Enemy Preview */}
+        {waveIndex < ENEMY_WAVES.length - 1 && (
+          <div style={{background:'rgba(192,57,43,0.1)', border:'1px solid rgba(192,57,43,0.3)',
+            borderRadius:'6px', padding:'10px 14px', marginBottom:'16px', display:'flex', alignItems:'center', gap:'12px'}}>
+            <span style={{fontSize:'28px'}}>{ENEMY_WAVES[waveIndex+1][0].emoji}</span>
+            <div>
+              <div style={{color:'#e74c3c', fontFamily:"'Cinzel', serif", fontSize:'13px'}}>
+                Next: {ENEMY_WAVES[waveIndex+1][0].name}
+                {ENEMY_WAVES[waveIndex+1][0].isBoss && <span style={{color:'#ffd700', marginLeft:'8px'}}>⚠️ BOSS</span>}
+              </div>
+              <div style={{color:'#888', fontSize:'11px'}}>
+                ❤️ {ENEMY_WAVES[waveIndex+1][0].maxHp} HP · ⚔️ {ENEMY_WAVES[waveIndex+1][0].atk} ATK · {ENEMY_WAVES[waveIndex+1][0].desc}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Creatures for sale */}
+        <h3 style={{fontFamily:"'Cinzel', serif", fontSize:'13px', letterSpacing:'3px',
+          color:'#9b7a3a', marginBottom:'10px', textTransform:'uppercase'}}>⚔️ Recruit Creatures</h3>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'10px', marginBottom:'16px'}}>
+          {shop?.creatures.map(c=>{
+            const canAfford = hero?.gold >= c.cost;
+            const rarityColors = {common:'#7f8c8d', uncommon:'#2ecc71', rare:'#3498db', legendary:'#ffd700'};
+            return (
+              <div key={c.id} className="shop-item" style={{
+                background:'rgba(0,0,0,0.4)', border:`1px solid ${rarityColors[c.rarity]}44`,
+                borderRadius:'6px', padding:'12px', boxShadow:`0 2px 10px ${rarityColors[c.rarity]}22`,
+              }}>
+                <div style={{fontSize:'28px', marginBottom:'6px', textAlign:'center'}}>{c.emoji}</div>
+                <div style={{fontFamily:"'Cinzel', serif", fontSize:'12px', color:'#d4af7a', marginBottom:'3px', textAlign:'center'}}>{c.name}</div>
+                <div style={{fontSize:'10px', color:'#888', marginBottom:'8px', textAlign:'center', lineHeight:'1.4'}}>{c.desc}</div>
+                <div style={{fontSize:'9px', color:rarityColors[c.rarity], textAlign:'center', textTransform:'uppercase', letterSpacing:'1px', marginBottom:'8px'}}>
+                  {c.rarity}
+                </div>
+                <button className="buy-btn" onClick={()=>buyFromShop(c,'creature')} disabled={!canAfford}
+                  style={{width:'100%', padding:'6px', fontFamily:"'Cinzel', serif", fontSize:'11px',
+                    background: canAfford?'linear-gradient(135deg,#1a3a1a,#1a5a1a)':'rgba(50,50,50,0.5)',
+                    border:`1px solid ${canAfford?'#27ae60':'#333'}`,
+                    color:canAfford?'#7dff7d':'#555', borderRadius:'3px', cursor:canAfford?'pointer':'default'}}>
+                  💰 {c.cost}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Artifacts for sale */}
+        <h3 style={{fontFamily:"'Cinzel', serif", fontSize:'13px', letterSpacing:'3px',
+          color:'#9b7a3a', marginBottom:'10px', textTransform:'uppercase'}}>🗡️ Artifacts</h3>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'10px', marginBottom:'20px'}}>
+          {shop?.artifacts.map(a=>{
+            const canAfford = hero?.gold >= a.cost;
+            const alreadyOwned = artifacts.some(x=>x.id===a.id);
+            return (
+              <div key={a.id} className="shop-item" style={{
+                background:'rgba(0,0,0,0.4)', border:'1px solid #ffd70033',
+                borderRadius:'6px', padding:'12px', boxShadow:'0 2px 10px #ffd70011',
+                display:'flex', gap:'12px', alignItems:'center',
+              }}>
+                <span style={{fontSize:'28px'}}>{a.emoji}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:"'Cinzel', serif", fontSize:'12px', color:'#ffd700', marginBottom:'3px'}}>{a.name}</div>
+                  <div style={{fontSize:'10px', color:'#888', marginBottom:'8px'}}>{a.desc}</div>
+                  <button className="buy-btn" onClick={()=>buyFromShop(a,'artifact')}
+                    disabled={!canAfford||alreadyOwned}
+                    style={{padding:'5px 12px', fontFamily:"'Cinzel', serif", fontSize:'11px',
+                      background: canAfford&&!alreadyOwned?'linear-gradient(135deg,#3a2a00,#5a4200)':'rgba(50,50,50,0.5)',
+                      border:`1px solid ${canAfford&&!alreadyOwned?'#ffd700':'#333'}`,
+                      color:canAfford&&!alreadyOwned?'#ffd700':'#555', borderRadius:'3px',
+                      cursor:canAfford&&!alreadyOwned?'pointer':'default'}}>
+                    {alreadyOwned ? '✓ Owned' : `💰 ${a.cost}`}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Continue */}
+        <button onClick={continueAfterShop} style={{
+          width:'100%', padding:'14px', fontFamily:"'Cinzel', serif", fontSize:'16px', letterSpacing:'3px',
+          background:'linear-gradient(135deg, #8b1a1a, #c0392b)',
+          border:'2px solid #ffd700', color:'#ffd700', borderRadius:'4px', cursor:'pointer',
+          boxShadow:'0 4px 20px rgba(192,57,43,0.4)', textTransform:'uppercase',
+        }}>
+          ⚔️ March to Battle — Wave {waveIndex+2}
+        </button>
+      </div>
+    </div>
+  );
+
+  /* ═══════════════════════════════════════
+     BATTLE SCREEN
+  ═══════════════════════════════════════ */
+  if(phase==='battle') {
+    const previewHand = selected.length > 0 ? evaluateHand(selected.map(i=>hand[i])) : null;
+    let previewDmg = 0;
+    if(previewHand) {
+      let d = { chips: previewHand.chips, mult: previewHand.mult, heal: 0 };
+      d = heroClass.bonus(previewHand, d);
+      for(const c of creatures) d = c.apply(d, previewHand);
+      for(const a of artifacts) {
+        if(a.effect.chips) d.chips += a.effect.chips;
+        if(a.effect.mult)  d.mult  += a.effect.mult;
+      }
+      previewDmg = Math.floor(d.chips * d.mult);
+    }
+
+    return (
+      <div style={{...S.root, justifyContent:'flex-start', padding:'8px', gap:'0'}}>
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@400;600&display=swap');
+          @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
+          @keyframes heroShake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(5px)} 40%,80%{transform:translateX(-5px)} }
+          @keyframes dmgPop { 0%{transform:translateY(0) scale(1);opacity:1} 100%{transform:translateY(-40px) scale(1.5);opacity:0} }
+          @keyframes cardHover { to{transform:translateY(-8px)} }
+          @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+          @keyframes logFade { from{opacity:0;transform:translateX(-10px)} to{opacity:1;transform:translateX(0)} }
+          .playing-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+          .playing-card:hover { transform:translateY(-10px)!important; }
+          .action-btn:hover:not(:disabled) { filter:brightness(1.2); transform:translateY(-2px); }
+          .action-btn { transition:all 0.15s; }
+          .enemy-shake { animation: shake 0.5s ease; }
+          .hero-shake { animation: heroShake 0.4s ease; }
+        `}</style>
+
+        {/* ── TOP HUD ── */}
+        <div style={{width:'100%', maxWidth:'760px', display:'flex', gap:'8px', marginBottom:'8px', alignItems:'stretch'}}>
+          {/* Hero panel */}
+          <div className={heroShake?'hero-shake':''} style={{
+            flex:1, background:'rgba(0,0,0,0.5)', border:'1px solid rgba(212,175,122,0.25)',
+            borderRadius:'6px', padding:'8px 12px', display:'flex', gap:'10px', alignItems:'center',
+          }}>
+            <span style={{fontSize:'28px'}}>{heroClass?.emoji}</span>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Cinzel', serif", fontSize:'11px', color:'#9b7a3a', letterSpacing:'2px'}}>
+                {heroClass?.name?.toUpperCase()}
+              </div>
+              <div style={{display:'flex', gap:'8px', alignItems:'center', marginTop:'4px'}}>
+                <div style={{flex:1, height:'10px', background:'#1a0a0a', borderRadius:'5px', overflow:'hidden', border:'1px solid #3a1a1a'}}>
+                  <div style={{width:`${(hero?.hp/hero?.maxHp)*100}%`, height:'100%',
+                    background:`linear-gradient(90deg, #8b0000, #e74c3c)`, transition:'width 0.5s',
+                    boxShadow:'0 0 8px #e74c3c'}} />
+                </div>
+                <span style={{fontSize:'12px', color:'#e74c3c', minWidth:'55px'}}>❤️ {hero?.hp}/{hero?.maxHp}</span>
+              </div>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{color:'#ffd700', fontSize:'14px', fontWeight:'bold'}}>💰{hero?.gold}</div>
+            </div>
+          </div>
+
+          {/* Wave indicator */}
+          <div style={{
+            background:'rgba(0,0,0,0.5)', border:'1px solid rgba(212,175,122,0.2)',
+            borderRadius:'6px', padding:'8px', textAlign:'center', minWidth:'60px', display:'flex', flexDirection:'column', justifyContent:'center',
+          }}>
+            {ENEMY_WAVES.map((_,i)=>(
+              <div key={i} style={{width:'8px', height:'8px', borderRadius:'50%', margin:'2px auto',
+                background: i < waveIndex ? '#ffd700' : i === waveIndex ? '#e74c3c' : '#333',
+                boxShadow: i === waveIndex ? '0 0 8px #e74c3c' : 'none'}} />
+            ))}
+            <div style={{fontSize:'10px', color:'#666', marginTop:'2px'}}>Wave</div>
+          </div>
+
+          {/* Hands/discards */}
+          <div style={{
+            background:'rgba(0,0,0,0.5)', border:'1px solid rgba(212,175,122,0.2)',
+            borderRadius:'6px', padding:'8px 12px', textAlign:'center', display:'flex', flexDirection:'column', justifyContent:'center', gap:'4px',
+          }}>
+            <div style={{color:'#7dff7d', fontSize:'13px'}}>🃏 Hands: <b>{handsLeft}</b></div>
+            <div style={{color:'#ffd07d', fontSize:'13px'}}>🔄 Discard: <b>{discardsLeft}</b></div>
+          </div>
+        </div>
+
+        {/* ── MAIN BATTLE AREA ── */}
+        <div style={{width:'100%', maxWidth:'760px', display:'flex', gap:'8px', marginBottom:'8px'}}>
+          {/* Enemy panel */}
+          <div className={enemyShake?'enemy-shake':''} style={{
+            flex:2, background:'linear-gradient(135deg, rgba(139,0,0,0.15), rgba(0,0,0,0.5))',
+            border:`2px solid ${enemy?.isBoss?'#ffd700':'rgba(192,57,43,0.4)'}`,
+            borderRadius:'8px', padding:'14px', position:'relative',
+            boxShadow: enemy?.isBoss?'0 0 30px rgba(255,215,0,0.2)':'none',
+          }}>
+            {enemy?.isBoss && <div style={{position:'absolute', top:'8px', right:'8px', color:'#ffd700',
+              fontFamily:"'Cinzel', serif", fontSize:'10px', letterSpacing:'2px'}}>⚠️ BOSS</div>}
+            <div style={{display:'flex', gap:'12px', alignItems:'center', marginBottom:'10px'}}>
+              <span style={{fontSize:'40px'}}>{enemy?.emoji}</span>
+              <div>
+                <div style={{fontFamily:"'Cinzel', serif", color:'#d4af7a', fontSize:'15px', fontWeight:'600'}}>{enemy?.name}</div>
+                <div style={{fontSize:'11px', color:'#888'}}>⚔️ {enemy?.atk} ATK{enemy?.special==='heal'?' · 🧛 Regenerates':enemy?.special==='burn'?' · 🔥 Burns':''}
+                  {burnStacks > 0 && <span style={{color:'#ff6b35'}}> · 🔥×{burnStacks}</span>}
+                </div>
+              </div>
+            </div>
+            <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+              <div style={{flex:1, height:'14px', background:'#1a0a0a', borderRadius:'7px', overflow:'hidden', border:'1px solid #3a1a1a'}}>
+                <div style={{
+                  width:`${Math.max(0,(enemy?.hp/enemy?.maxHp)*100)}%`, height:'100%',
+                  background:`linear-gradient(90deg, #4a0000, #e74c3c, #ff6b6b)`,
+                  transition:'width 0.5s', boxShadow:'0 0 10px #e74c3c',
+                }} />
+              </div>
+              <span style={{fontSize:'12px', color:'#e74c3c', minWidth:'70px', textAlign:'right'}}>
+                {enemy?.hp}/{enemy?.maxHp}
+              </span>
+            </div>
+          </div>
+
+          {/* Creatures panel */}
+          <div style={{
+            flex:1, background:'rgba(0,0,0,0.4)', border:'1px solid rgba(212,175,122,0.15)',
+            borderRadius:'8px', padding:'10px', overflowY:'auto', maxHeight:'120px',
+          }}>
+            <div style={{fontFamily:"'Cinzel', serif", fontSize:'10px', color:'#9b7a3a',
+              letterSpacing:'2px', marginBottom:'8px'}}>YOUR ARMY</div>
+            {creatures.length === 0 && <div style={{color:'#444', fontSize:'11px'}}>No creatures yet</div>}
+            <div style={{display:'flex', flexWrap:'wrap', gap:'6px'}}>
+              {creatures.map((c,i)=>(
+                <div key={`${c.id}-${i}`} title={`${c.name}: ${c.desc}`} style={{
+                  width:'32px', height:'32px', borderRadius:'4px', display:'flex', alignItems:'center',
+                  justifyContent:'center', fontSize:'18px', background:'rgba(255,255,255,0.05)',
+                  border:'1px solid rgba(212,175,122,0.2)', cursor:'help',
+                  boxShadow:'0 2px 8px rgba(0,0,0,0.3)',
+                }}>
+                  {c.emoji}
+                </div>
+              ))}
+              {artifacts.map((a,i)=>(
+                <div key={`${a.id}-${i}`} title={`${a.name}: ${a.desc}`} style={{
+                  width:'32px', height:'32px', borderRadius:'4px', display:'flex', alignItems:'center',
+                  justifyContent:'center', fontSize:'18px', background:'rgba(255,215,0,0.08)',
+                  border:'1px solid rgba(255,215,0,0.25)', cursor:'help',
+                }}>
+                  {a.emoji}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── HAND PREVIEW + LOG ── */}
+        <div style={{width:'100%', maxWidth:'760px', display:'flex', gap:'8px', marginBottom:'8px', minHeight:'68px'}}>
+          {/* Hand evaluation preview */}
+          <div style={{
+            flex:1, background:'rgba(0,0,0,0.4)', border:`1px solid ${previewHand?HAND_DATA[previewHand.name]?.color+'55':'rgba(212,175,122,0.15)'}`,
+            borderRadius:'6px', padding:'10px 14px', display:'flex', alignItems:'center', gap:'12px',
+            transition:'border-color 0.3s',
+          }}>
+            {previewHand ? (
+              <>
+                <span style={{fontSize:'28px'}}>{HAND_DATA[previewHand.name]?.emoji}</span>
+                <div>
+                  <div style={{fontFamily:"'Cinzel', serif", fontSize:'14px',
+                    color:HAND_DATA[previewHand.name]?.color, fontWeight:'600'}}>{previewHand.name}</div>
+                  <div style={{fontSize:'11px', color:'#888'}}>
+                    {previewHand.chips} chips × {previewHand.mult.toFixed(1)} mult
+                  </div>
+                </div>
+                <div style={{marginLeft:'auto', fontSize:'20px', fontWeight:'bold',
+                  color:'#ff6b35', fontFamily:"'Cinzel', serif"}}>
+                  ⚔️ {previewDmg}
+                </div>
+              </>
+            ) : (
+              <div style={{color:'#444', fontSize:'12px', fontFamily:"'Cinzel', serif", letterSpacing:'2px'}}>
+                SELECT CARDS TO PREVIEW HAND
+              </div>
+            )}
+            {lastHand && !previewHand && (
+              <div style={{display:'flex', gap:'12px', alignItems:'center'}}>
+                <span style={{fontSize:'22px'}}>{HAND_DATA[lastHand.name]?.emoji}</span>
+                <div>
+                  <div style={{color:HAND_DATA[lastHand.name]?.color, fontFamily:"'Cinzel', serif", fontSize:'13px'}}>
+                    Last: {lastHand.name}
+                  </div>
+                  <div style={{color:'#ff6b35', fontSize:'12px'}}>⚔️ {lastDmg} damage</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Battle log */}
+          <div style={{
+            width:'220px', background:'rgba(0,0,0,0.5)', border:'1px solid rgba(212,175,122,0.1)',
+            borderRadius:'6px', padding:'8px', overflowY:'auto',
+          }}>
+            {log.slice(0,4).map((entry,i)=>(
+              <div key={entry.id} style={{
+                fontSize:'10px', marginBottom:'3px', lineHeight:'1.4',
+                color: entry.type==='attack'?'#ff8c00':entry.type==='enemy'?'#e74c3c':
+                       entry.type==='victory'?'#ffd700':entry.type==='heal'?'#2ecc71':
+                       entry.type==='system'?'#9b59b6':'#888',
+                opacity: 1 - i * 0.2,
+                animation:'logFade 0.3s ease',
+              }}>
+                {entry.msg}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── HAND OF CARDS ── */}
+        <div style={{width:'100%', maxWidth:'760px', display:'flex', justifyContent:'center',
+          gap:'6px', flexWrap:'wrap', marginBottom:'10px', minHeight:'110px', alignItems:'flex-end'}}>
+          {hand.map((card, idx) => {
+            const isSelected = selected.includes(idx);
+            const sColor = SUIT_COLOR(card.suit);
+            return (
+              <div key={card.id} className="playing-card" onClick={()=>selectCard(idx)}
+                style={{
+                  width:'58px', height:'90px', borderRadius:'6px', cursor:'pointer', position:'relative',
+                  background: isSelected
+                    ? `linear-gradient(135deg, #1a1a3e, #2a2a5e)`
+                    : `linear-gradient(135deg, #1e1a14, #2a2416)`,
+                  border:`2px solid ${isSelected?'#ffd700':'rgba(212,175,122,0.3)'}`,
+                  boxShadow: isSelected
+                    ? '0 0 15px rgba(255,215,0,0.5), 0 4px 15px rgba(0,0,0,0.8)'
+                    : '0 4px 12px rgba(0,0,0,0.6)',
+                  transform: isSelected ? 'translateY(-14px)' : 'translateY(0)',
+                  transition:'all 0.15s ease',
+                  userSelect:'none', flexShrink:0,
+                }}>
+                {/* Top rank */}
+                <div style={{position:'absolute', top:'5px', left:'6px', fontSize:'13px',
+                  fontWeight:'bold', color:sColor, lineHeight:'1', fontFamily:"'Cinzel', serif"}}>
+                  {card.rank}
+                </div>
+                <div style={{position:'absolute', top:'18px', left:'6px', fontSize:'11px', color:sColor}}>
+                  {card.suit}
+                </div>
+                {/* Center suit */}
+                <div style={{position:'absolute', top:'50%', left:'50%',
+                  transform:'translate(-50%, -50%)', fontSize:'22px', color:sColor}}>
+                  {card.suit}
+                </div>
+                {/* Bottom rank (inverted) */}
+                <div style={{position:'absolute', bottom:'5px', right:'6px', fontSize:'13px',
+                  fontWeight:'bold', color:sColor, lineHeight:'1', transform:'rotate(180deg)', fontFamily:"'Cinzel', serif"}}>
+                  {card.rank}
+                </div>
+                {isSelected && (
+                  <div style={{position:'absolute', inset:0, borderRadius:'4px',
+                    background:'rgba(255,215,0,0.08)', pointerEvents:'none'}} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── ACTION BUTTONS ── */}
+        <div style={{width:'100%', maxWidth:'760px', display:'flex', gap:'10px', justifyContent:'center'}}>
+          <button className="action-btn" onClick={playHand}
+            disabled={selected.length===0 || handsLeft===0 || animating}
+            style={{
+              flex:2, padding:'12px', fontFamily:"'Cinzel', serif", fontSize:'15px', letterSpacing:'2px',
+              background: selected.length>0 && handsLeft>0 && !animating
+                ? 'linear-gradient(135deg, #8b1a1a, #c0392b)'
+                : 'rgba(50,30,30,0.5)',
+              border:`2px solid ${selected.length>0 && handsLeft>0 && !animating?'#ffd700':'#333'}`,
+              color: selected.length>0 && handsLeft>0 && !animating ? '#ffd700' : '#555',
+              borderRadius:'6px', cursor: selected.length>0 && handsLeft>0 && !animating ? 'pointer' : 'default',
+              boxShadow: selected.length>0 && handsLeft>0 && !animating
+                ? '0 4px 20px rgba(192,57,43,0.4)' : 'none',
+              textTransform:'uppercase',
+            }}>
+            ⚔️ Play Hand ({handsLeft} left)
+          </button>
+          <button className="action-btn" onClick={discardCards}
+            disabled={selected.length===0 || discardsLeft===0 || animating}
+            style={{
+              flex:1, padding:'12px', fontFamily:"'Cinzel', serif", fontSize:'14px', letterSpacing:'1px',
+              background: selected.length>0 && discardsLeft>0 && !animating
+                ? 'linear-gradient(135deg, #1a3a5a, #1a5a8a)'
+                : 'rgba(30,40,50,0.5)',
+              border:`2px solid ${selected.length>0 && discardsLeft>0 && !animating?'#4a90d9':'#333'}`,
+              color: selected.length>0 && discardsLeft>0 && !animating ? '#7dc8ff' : '#555',
+              borderRadius:'6px', cursor: selected.length>0 && discardsLeft>0 && !animating ? 'pointer' : 'default',
+              textTransform:'uppercase',
+            }}>
+            🔄 Discard ({discardsLeft})
+          </button>
+          <button className="action-btn" onClick={()=>{setSelected([])}}
+            style={{
+              padding:'12px 16px', fontFamily:"'Cinzel', serif", fontSize:'13px',
+              background:'rgba(30,30,30,0.5)', border:'1px solid #333',
+              color:'#666', borderRadius:'6px', cursor:'pointer',
+            }}>
+            ✕
+          </button>
+        </div>
+
+        {/* Hand reference */}
+        <div style={{width:'100%', maxWidth:'760px', marginTop:'8px', display:'flex', gap:'4px', flexWrap:'wrap', justifyContent:'center'}}>
+          {Object.entries(HAND_DATA).reverse().map(([name,data])=>(
+            <span key={name} style={{fontSize:'9px', padding:'2px 6px', borderRadius:'3px',
+              background:'rgba(0,0,0,0.4)', border:`1px solid ${data.color}33`,
+              color:data.color, fontFamily:"'Cinzel', serif", letterSpacing:'0.5px',
+              opacity: previewHand?.name === name ? 1 : 0.5,
+              transform: previewHand?.name === name ? 'scale(1.1)' : 'scale(1)',
+              transition:'all 0.2s',
+            }}>
+              {data.emoji} {name}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
