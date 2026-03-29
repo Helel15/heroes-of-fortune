@@ -15,16 +15,8 @@ const httpServer = createServer((req, res) => {
 
 const io = new Server(httpServer, {
   cors: {
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:5174',
-      'https://lesly-subalgebraical-overgreatly.ngrok-free.dev',
-      'https://respected-blonde-hardware-oops.trycloudflare.com',
-      'https://respected-blonde-hardware-oops.trycloudflare.com',
-    ],
+    origin: '*',
     methods: ['GET', 'POST'],
-    credentials: true,
-    allowedHeaders: ['Content-Type'],
   },
   transports: ['websocket', 'polling'],
   pingTimeout: 20000,
