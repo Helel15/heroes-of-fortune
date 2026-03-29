@@ -24,6 +24,7 @@ const io = new Server(httpServer, {
     ],
     methods: ['GET', 'POST'],
     credentials: true,
+    allowedHeaders: ['Content-Type'],
   },
   transports: ['websocket', 'polling'],
   pingTimeout: 20000,

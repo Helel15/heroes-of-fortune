@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 
-const SERVER_URL = 'https://respected-blonde-hardware-oops.trycloudflare.com';
+const SERVER_URL = 'https://heroes-of-fortune-production.up.railway.app';
 const FONT = "'Cinzel','Palatino Linotype',Georgia,serif";
 
 const CSS = `
